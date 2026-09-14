@@ -86,10 +86,10 @@ class EngineCoreReadyResponse:
 
 
 class EngineCoreRequest(
-    msgspec.Struct,
-    array_like=True,  # type: ignore[call-arg]
-    omit_defaults=True,  # type: ignore[call-arg]
-    gc=False,
+    msgspec.Struct, # 这个结构要跨进程序列化(前端 → EngineCore 进程), `msgspec` 序列化极快
+    array_like=True, # 把字段当数组编码更紧凑 # type: ignore[call-arg]
+    omit_defaults=True, # 省略默认值减少体积 # type: ignore[call-arg]
+    gc=False, # 跳过 GC 追踪省开销
 ):  # type: ignore[call-arg]
     request_id: str
     prompt_token_ids: list[int] | None

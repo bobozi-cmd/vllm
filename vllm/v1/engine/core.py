@@ -120,7 +120,7 @@ class EngineCore:
         self.log_stats = log_stats
 
         # Setup Model.
-        self.model_executor = executor_class(vllm_config)
+        self.model_executor = executor_class(vllm_config) # 模型执行器(管 GPU worker)
         if executor_fail_callback is not None:
             self.model_executor.register_failure_callback(executor_fail_callback)
 
@@ -130,8 +130,8 @@ class EngineCore:
             self._eep_scale_up_before_kv_init()
 
         # Setup KV Caches and update CacheConfig after profiling.
-        kv_cache_config = self._initialize_kv_caches(vllm_config)
-        self.structured_output_manager = StructuredOutputManager(vllm_config)
+        kv_cache_config = self._initialize_kv_caches(vllm_config) # 先 profile 显存,再定 KV cache 大小
+        self.structured_output_manager = StructuredOutputManager(vllm_config) # 结构化输出(JSON/正则约束)
 
         # Setup scheduler.
         Scheduler = vllm_config.scheduler_config.get_scheduler_cls()
@@ -194,7 +194,7 @@ class EngineCore:
         # schedule and execute batches, and is required by pipeline parallelism
         # to eliminate pipeline bubbles.
         self.batch_queue_size = vllm_config.max_concurrent_batches
-        self.batch_queue: (
+        self.batch_queue: ( # 当开启 pipeline 并行时用它异步调度+执行,消除 pipeline 气泡
             deque[tuple[Future[ModelRunnerOutput], SchedulerOutput, Future[Any]]] | None
         ) = None
         if self.batch_queue_size > 1:
@@ -487,21 +487,21 @@ class EngineCore:
         # or finished and not yet removed from the batch.
         if not self.scheduler.has_requests():
             return {}, False
-        scheduler_output = self.scheduler.schedule(self._should_throttle_prefills())
-        future = self.model_executor.execute_model(scheduler_output, non_block=True)
-        grammar_output = self.scheduler.get_grammar_bitmask(scheduler_output)
+        scheduler_output = self.scheduler.schedule(self._should_throttle_prefills()) # 调度:选哪些请求、分配 KV block
+        future = self.model_executor.execute_model(scheduler_output, non_block=True) # 异步前向
+        grammar_output = self.scheduler.get_grammar_bitmask(scheduler_output) # 结构化输出的 mask
         with (
             self.log_error_detail(scheduler_output),
             self.log_iteration_details(scheduler_output),
         ):
-            model_output = future.result()
+            model_output = future.result() # 等前向完成
             if model_output is None:
-                model_output = self.model_executor.sample_tokens(grammar_output)
+                model_output = self.model_executor.sample_tokens(grammar_output) # 采样出 token
 
         # Before processing the model output, process any aborts that happened
         # during the model execution.
         self._process_aborts_queue()
-        engine_core_outputs = self.scheduler.update_from_output(
+        engine_core_outputs = self.scheduler.update_from_output( # 回写状态
             scheduler_output, model_output
         )
 
@@ -865,7 +865,8 @@ class EngineCore:
             request.mm_features = self.mm_receiver_cache.get_and_update_features(
                 request.mm_features
             )
-
+        # `EngineCoreRequest` (跨进程的序列化载体)→`Request` (核心内部的运行时对象)
+        # 还会顺便算好 prefix caching 需要的 block hash
         req = Request.from_engine_core_request(request, self.request_block_hasher)
         if req.use_structured_output:
             # Note on thread safety: no race condition.
@@ -1260,9 +1261,9 @@ class EngineCoreProc(EngineCore):
         """Core busy loop of the EngineCore."""
         while self._handle_shutdown():
             # 1) Poll the input queue until there is work to do.
-            self._process_input_queue()
+            self._process_input_queue() # 有活儿前一直等/取输入
             # 2) Step the engine core and return the outputs.
-            self._process_engine_step()
+            self._process_engine_step() # 推进一步,产出塞进输出队列
 
         raise SystemExit
 

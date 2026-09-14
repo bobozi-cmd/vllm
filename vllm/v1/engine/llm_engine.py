@@ -90,10 +90,10 @@ class LLMEngine:
 
         self.renderer = renderer = renderer_from_config(self.vllm_config)
 
-        # Convert EngineInput --> EngineCoreRequest.
+        # Convert EngineInput --> EngineCoreRequest. 文本 → token id
         self.input_processor = InputProcessor(self.vllm_config, renderer)
 
-        # Converts EngineCoreOutputs --> RequestOutput.
+        # Converts EngineCoreOutputs --> RequestOutput. token id → 文本(detokenize),流式返回
         self.output_processor = OutputProcessor(
             renderer.tokenizer,
             log_stats=self.log_stats,

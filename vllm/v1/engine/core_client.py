@@ -287,7 +287,7 @@ class InprocClient(EngineCoreClient):
         self.engine_core = EngineCore(*args, **kwargs)
 
     def get_output(self) -> EngineCoreOutputs:
-        outputs, model_executed = self.engine_core.step_fn()
+        outputs, model_executed = self.engine_core.step_fn() # 直接推一步
         self.engine_core.post_step(model_executed=model_executed)
         return outputs and outputs.get(0) or EngineCoreOutputs()
 
@@ -814,7 +814,7 @@ class SyncMPClient(MPClient):
                 poller.register(shutdown_socket, zmq.POLLIN)
                 poller.register(out_socket, zmq.POLLIN)
                 while True:
-                    socks = poller.poll()
+                    socks = poller.poll() # 阻塞等 socket 可读
                     if not socks:
                         continue
                     if len(socks) == 2 or socks[0][0] == shutdown_socket:
@@ -825,9 +825,9 @@ class SyncMPClient(MPClient):
                     resources.validate_alive(frames)
                     outputs: EngineCoreOutputs = decoder.decode(frames)
                     if outputs.utility_output:
-                        _process_utility_output(outputs.utility_output, utility_results)
+                        _process_utility_output(outputs.utility_output, utility_results) # RPC 类调用的返回值
                     else:
-                        outputs_queue.put_nowait(outputs)
+                        outputs_queue.put_nowait(outputs) # 普通生成结果,塞进队列
             except Exception as e:
                 outputs_queue.put_nowait(e)
             finally:
@@ -847,6 +847,7 @@ class SyncMPClient(MPClient):
         self.resources.output_socket = None
 
     def get_output(self) -> EngineCoreOutputs:
+        """从后台线程填充的队列里拿输出结果"""
         # If an exception arises in process_outputs_socket task,
         # it is forwarded to the outputs_queue so we can raise it
         # from this (run_output_handler) task to shut down the server.
@@ -859,24 +860,27 @@ class SyncMPClient(MPClient):
         return outputs
 
     def _send_input(self, request_type: EngineCoreRequestType, request: Any):
+        """数据流 (高频):`add_request` /`abort_requests` → 走`_send_input` ,单向 fire-and-forget,不等返回"""
         self.ensure_alive()
         self.free_pending_messages()
-        # (Identity, RequestType, SerializedRequest)
+        # (Identity, RequestType, SerializedRequest) (引擎身份, 请求类型, 序列化后的请求体(msgspec做编码))
         msg = (self.core_engine, request_type.value, *self.encoder.encode(request))
 
         if len(msg) <= 3:
             # No auxiliary buffers => no tensor backing buffers in request.
-            self.input_socket.send_multipart(msg, copy=False)
+            self.input_socket.send_multipart(msg, copy=False) # 无张量,直接发
             return
-
+        # `copy=False` 是零拷贝优化, 当请求里带 tensor(比如`prompt_embeds` )时,底层缓冲区不能立刻复用,
+        # 所以用`track=True` +`add_pending_message` 跟踪,等发送真正完成再释放
         tracker = self.input_socket.send_multipart(msg, copy=False, track=True)
-        self.add_pending_message(tracker, request)
+        self.add_pending_message(tracker, request) # 有张量,要跟踪缓冲区
 
     def call_utility(self, method: str, *args) -> Any:
+        """控制流 (低频):`add_lora` /`reset_prefix_cache` /`collective_rpc` 等 → 走`call_utility`"""
         call_id = uuid.uuid1().int >> 64
-        future: Future[Any] = Future()
+        future: Future[Any] = Future() # 登记一个 future
         self.utility_results[call_id] = future
-        self._send_input(EngineCoreRequestType.UTILITY, (0, call_id, method, args))
+        self._send_input(EngineCoreRequestType.UTILITY, (0, call_id, method, args)) # 阻塞等结果
 
         return future.result()
 

@@ -276,7 +276,7 @@ class InputProcessor:
 
             if arrival_time is None:
                 arrival_time = prompt.get("arrival_time", time.time())  # type: ignore[assignment]
-
+            # 已经是渲染好的 EngineInput,直接用
             processed_inputs: EngineInput = prompt  # type: ignore[assignment]
         else:
             logger.warning_once(
@@ -287,7 +287,8 @@ class InputProcessor:
 
             if arrival_time is None:
                 arrival_time = time.time()
-
+            # 老路径(将废弃):原始 prompt 需要在这里 tokenize
+            # 新版把 tokenize 的活儿挪到了前面的`Renderer` (`render_cmpl` /`render_chat` )
             processed_inputs = self.input_preprocessor.preprocess(
                 prompt,
                 tokenization_kwargs=tokenization_kwargs,
@@ -320,19 +321,19 @@ class InputProcessor:
                 )
                 sampling_params.max_tokens = self.model_config.max_model_len - seq_len
 
-            sampling_params.update_from_generation_config(
+            sampling_params.update_from_generation_config( # 合并模型自带的默认生成配置
                 self.generation_config_fields,
                 self.renderer.get_eos_token_id(),
             )
             if self.tokenizer is not None:
-                sampling_params.update_from_tokenizer(self.tokenizer)
+                sampling_params.update_from_tokenizer(self.tokenizer) # 补 eos/stop token
         else:
             pooling_params = params.clone()
 
         # Multimodal related.
         mm_features: list[MultiModalFeatureSpec] | None = None
 
-        if decoder_inputs["type"] == "multimodal":
+        if decoder_inputs["type"] == "multimodal": # 多模态部分把图片/视频等特征展开成一个有序的`MultiModalFeatureSpec` 列表
             decoder_mm_inputs = decoder_inputs["mm_kwargs"]
             decoder_mm_positions = decoder_inputs["mm_placeholders"]
             decoder_mm_hashes = decoder_inputs["mm_hashes"]
