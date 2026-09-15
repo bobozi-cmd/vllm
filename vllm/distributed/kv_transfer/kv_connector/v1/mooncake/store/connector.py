@@ -147,11 +147,11 @@ class MooncakeStoreConnector(KVConnectorBase_V1, SupportsHMA):
         self.connector_worker: MooncakeStoreWorker | None = None
 
         if role == KVConnectorRole.SCHEDULER:
-            self.connector_scheduler = MooncakeStoreScheduler(
+            self.connector_scheduler = MooncakeStoreScheduler( # 决策
                 vllm_config, kv_cache_config
             )
         else:
-            self.connector_worker = MooncakeStoreWorker(vllm_config, kv_cache_config)
+            self.connector_worker = MooncakeStoreWorker(vllm_config, kv_cache_config) # 搬运(读写 Store)
 
     def shutdown(self):
         """Release connector resources on teardown.

@@ -460,7 +460,7 @@ class KVConnectorBase_V1(ABC):
         request: "Request",
         num_computed_tokens: int,
     ) -> tuple[int | None, bool]:
-        """
+        """ 命中多少外部缓存 token\n
         Get number of new tokens that can be loaded from the
         external KV cache beyond the num_computed_tokens.
 
@@ -514,7 +514,7 @@ class KVConnectorBase_V1(ABC):
     def build_connector_meta(
         self, scheduler_output: SchedulerOutput
     ) -> KVConnectorMetadata:
-        """
+        """把决策打包成"传输计划"发给 worker\n
         Build the connector metadata for this step.
 
         This function should NOT modify fields in the scheduler_output.
@@ -548,7 +548,7 @@ class KVConnectorBase_V1(ABC):
         request: "Request",
         block_ids: list[int],
     ) -> tuple[bool, dict[str, Any] | None]:
-        """
+        """请求结束,决定是否异步保存\n
         Called exactly once when a request has finished, before its blocks are
         freed.
 

@@ -42,7 +42,7 @@ class EngineEntry:
 
 
 class MooncakeBootstrapServer:
-    """
+    """让 prefiller 的各个 worker 把自己的连接信息登记进来,供 decoder 查询, 只在 P2P 版`MooncakeConnector` 里用\n
     A centralized server running on the global rank 0 prefiller worker.
     Prefiller workers register their connection info (IP, port, ranks) here.
     """

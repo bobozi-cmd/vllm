@@ -819,8 +819,8 @@ class MooncakeConnectorWorker:
         self.hostname = get_ip()
 
         assert (kv_transfer_config := vllm_config.kv_transfer_config)
-        self.is_kv_producer: bool = kv_transfer_config.kv_role == "kv_producer"
-        self.is_kv_consumer: bool = kv_transfer_config.kv_role == "kv_consumer"
+        self.is_kv_producer: bool = kv_transfer_config.kv_role == "kv_producer" # prefill 节点
+        self.is_kv_consumer: bool = kv_transfer_config.kv_role == "kv_consumer" # decode 节点
         self.num_sender_workers = kv_transfer_config.kv_connector_extra_config.get(
             "num_workers", 10
         )
@@ -895,7 +895,7 @@ class MooncakeConnectorWorker:
             # Start bootstrap server on global rank 0.
             if should_launch_bootstrap_server(vllm_config):
                 _, port = get_mooncake_bootstrap_addr(vllm_config)
-                self.bootstrap_server = MooncakeBootstrapServer("0.0.0.0", port)
+                self.bootstrap_server = MooncakeBootstrapServer("0.0.0.0", port) # producer 起一个 bootstrap 端口,consumer 通过它握手拿到"KVCache 在 P 的哪块显存"
                 self.bootstrap_server.start()
 
         if not self.is_kv_producer:
@@ -1807,15 +1807,16 @@ class MooncakeConnectorWorker:
     async def record_send_reqs(self, metadata: MooncakeConnectorMetadata):
         for p_req_id, (transfer_id, block_ids) in metadata.reqs_to_send.items():
             if block_ids:
-                # Already gone through request_finished()
+                # 已经走完 request_finished(): 说明 prefill 真的算完了
                 send_meta = self.reqs_need_send[transfer_id]
                 send_meta.p_req_id = p_req_id
                 send_meta.local_block_ids = block_ids
                 send_meta.expire_time = (
                     time.perf_counter() + envs.VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT
                 )
-                send_meta.ready.set()
+                send_meta.ready.set() # ← 打开开关:告诉传输侧"数据就绪,可以发了"
             else:
+                # 还没到 request_finished(),先建个占位,ready 保持未触发
                 # From update_state_after_alloc(),
                 # but not reach request_finished() yet
                 # This may be already created by send_kv_to_decode()

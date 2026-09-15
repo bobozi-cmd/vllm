@@ -84,9 +84,9 @@ class MooncakeStoreScheduler:
         # Look up against the full prefill range, not just the prompt.
         token_len = request.num_tokens // self._block_size * self._block_size
         if token_len < self._block_size:
-            return 0, False
+            return 0, False # 请求太短,连一个 block 都不够 -> 命中 0 个,不异步加载
 
-        num_external_hit_tokens = self.client.lookup(
+        num_external_hit_tokens = self.client.lookup( # 拿 block hash 列表 去 Store 里逐块查前缀
             request.request_id,
             token_len,
             request.block_hashes,
@@ -120,7 +120,7 @@ class MooncakeStoreScheduler:
         if need_to_allocate <= 0:
             return 0, False
 
-        self.load_specs[request.request_id] = LoadSpec(
+        self.load_specs[request.request_id] = LoadSpec( # 在命中时创建, 后续 worker 基于LoadSpec发起Store读操作
             vllm_cached_tokens=num_computed_tokens,
             kvpool_cached_tokens=num_external_hit_tokens,
             can_load=False,
