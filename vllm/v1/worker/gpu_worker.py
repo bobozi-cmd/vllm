@@ -878,7 +878,7 @@ class Worker(WorkerBase):
                 )
             }
 
-        if forward_pass and not get_pp_group().is_first_rank:
+        if forward_pass and not get_pp_group().is_first_rank: # PP模式: 不是第一个 stage, irecv_tensor_dict() 从上一个 stage 接收中间激活
             tensor_dict, comm_handles, comm_postprocess = (
                 get_pp_group().irecv_tensor_dict(
                     all_gather_group=get_tp_group(),

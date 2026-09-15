@@ -10,7 +10,15 @@ import torch
 # cannot use msgspec.Struct here because Dynamo does not support it
 @dataclass
 class IntermediateTensors:
-    """For all pipeline stages except the last, we need to return the hidden
+    """PP Stage 之间只会传输 hidden states 和 residuals.
+        - hidden_states       ← 从 rank0 点对点收到 (irecv)
+    所以 PP 模式下, 每个 rank 推理所需的元数据需要通过 `SchedulerOutput` collective_rpc() 广播传输:
+        - 这些 token 的 positions
+        - 每个请求的 block table (KV cache 在哪些物理块)
+        - seq_len / query_start_loc (attention 的边界)
+        - 哪些是 prefill、哪些是 decode
+
+    For all pipeline stages except the last, we need to return the hidden
     states and residuals to be sent to the next stage. This data structure
     contains the hidden states and residuals for a request.
     """

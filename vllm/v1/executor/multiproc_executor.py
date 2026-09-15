@@ -182,7 +182,7 @@ class MultiprocExecutor(Executor):
                     unready_worker_handle = WorkerProc.make_worker_process(
                         vllm_config=self.vllm_config,
                         local_rank=local_rank,
-                        rank=global_rank,
+                        rank=global_rank, # 每个worker拿到的权重不同
                         distributed_init_method=distributed_init_method,
                         input_shm_handle=scheduler_output_handle,
                         shared_worker_lock=shared_worker_lock,
@@ -310,7 +310,7 @@ class MultiprocExecutor(Executor):
         return self.collective_rpc(
             "execute_model",
             args=(scheduler_output,),
-            unique_reply_rank=self.output_rank,
+            unique_reply_rank=self.output_rank, # TP 场景下所有 worker 算的采样结果是一样的(或只有最后一个 PP rank 有意义),所以 只从一个 rank 收结果 ,不用聚合 N 份相同数据
             non_block=non_block,
             timeout=envs.VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS,
             kv_output_aggregator=self.kv_output_aggregator,
@@ -371,12 +371,13 @@ class MultiprocExecutor(Executor):
             send_method = method
         else:
             send_method = cloudpickle.dumps(method, protocol=pickle.HIGHEST_PROTOCOL)
+        # 1) 广播:把 (方法名, 参数) 塞进广播消息队列,所有 worker 进程都收到相同输入, TP/PP 通过模型层的不同权重做出区分
         self.rpc_broadcast_mq.enqueue((send_method, args, kwargs, output_rank))
 
         response_mqs: Sequence[MessageQueue] = self.response_mqs
         if output_rank is not None:
             response_mqs = (response_mqs[output_rank],)
-
+        # 2) 收集:从各 worker 的响应队列取结果
         def get_response():
             responses = []
             for mq in response_mqs:
@@ -497,11 +498,11 @@ class MultiprocExecutor(Executor):
         # (the first TP worker of the last PP stage).
         # Example:
         # Assuming TP=8, PP=4, then the world_size=32
-        # 0-7, PP rank 0
-        # 8-15, PP rank 1
-        # 16-23, PP rank 2
-        # 24-31, PP rank 3
-        # so world_size - tp_size = 32 - 8 = 24 should be PP rank = -1 (i.e. 3)
+        # 0-7, PP rank 0 <- 模型的前 1/4 层
+        # 8-15, PP rank 1 ← 中间层
+        # 16-23, PP rank 2 ← 中间层
+        # 24-31, PP rank 3 ← 最后 1/4 层 + LM head
+        # so world_size - tp_size = 32 - 8 = 24 should be PP rank = -1 (i.e. 3) 最后一个 PP stage 的第一个 TP rank
         return (
             self.world_size
             - self.parallel_config.tensor_parallel_size

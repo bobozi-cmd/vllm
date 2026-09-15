@@ -57,7 +57,7 @@ class Executor(ABC):
                     f"Executor. Got {distributed_executor_backend}."
                 )
             executor_class = distributed_executor_backend
-        elif distributed_executor_backend == "ray":
+        elif distributed_executor_backend == "ray": # 用 Ray 跨节点 (多机)
             if envs.VLLM_USE_RAY_V2_EXECUTOR_BACKEND:
                 from vllm.v1.executor.ray_executor_v2 import RayExecutorV2
 
@@ -66,11 +66,11 @@ class Executor(ABC):
                 from vllm.v1.executor.ray_executor import RayDistributedExecutor
 
                 executor_class = RayDistributedExecutor
-        elif distributed_executor_backend == "mp":
+        elif distributed_executor_backend == "mp": # 每个 GPU 一个 worker 进程,消息队列广播 (单机多卡)
             from vllm.v1.executor.multiproc_executor import MultiprocExecutor
 
             executor_class = MultiprocExecutor
-        elif distributed_executor_backend == "uni":
+        elif distributed_executor_backend == "uni": # 就一个 worker,同进程直调
             from vllm.v1.executor.uniproc_executor import UniProcExecutor
 
             executor_class = UniProcExecutor
@@ -223,7 +223,7 @@ class Executor(ABC):
     ) -> ModelRunnerOutput | None | Future[ModelRunnerOutput | None]:
         output = self.collective_rpc(  # type: ignore[call-overload]
             "execute_model", args=(scheduler_output,), non_block=non_block
-        )
+        ) # 让所有 worker 都执行`worker.method(*args)`
         return output[0]
 
     @overload

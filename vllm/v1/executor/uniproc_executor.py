@@ -89,7 +89,7 @@ class UniProcExecutor(Executor):
             kwargs = {}
 
         if not non_block:
-            result = run_method(self.driver_worker, method, args, kwargs)
+            result = run_method(self.driver_worker, method, args, kwargs) # 直接调用唯一 worker 的`execute_model`
             if isinstance(result, AsyncModelRunnerOutput):
                 result = result.get_output()
             return result if single_value else [result]
